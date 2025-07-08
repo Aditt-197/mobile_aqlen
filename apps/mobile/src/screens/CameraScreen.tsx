@@ -155,34 +155,32 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
         ref={cameraRef}
         style={styles.camera}
         facing="back"
-      >
-        <View style={styles.overlay}>
-          {/* Recording indicator */}
-          {recordingState.isRecording && (
-            <View style={styles.recordingIndicator}>
-              <View style={styles.recordingDot} />
-              <Text style={styles.recordingText}>
-                Recording: {Math.floor(recordingState.duration / 1000)}s
-              </Text>
-            </View>
-          )}
-
-          {/* Camera controls */}
-          <View style={styles.controls}>
-            <TouchableOpacity
-              style={[styles.captureButton, isTakingPhoto && styles.captureButtonDisabled]}
-              onPress={takePicture}
-              disabled={isTakingPhoto}
-            >
-              {isTakingPhoto ? (
-                <ActivityIndicator size="large" color="#FFFFFF" />
-              ) : (
-                <View style={styles.captureButtonInner} />
-              )}
-            </TouchableOpacity>
-          </View>
+      />
+      
+      {/* Recording indicator - positioned absolutely */}
+      {recordingState.isRecording && (
+        <View style={styles.recordingIndicator}>
+          <View style={styles.recordingDot} />
+          <Text style={styles.recordingText}>
+            Recording: {Math.floor(recordingState.duration / 1000)}s
+          </Text>
         </View>
-      </CameraView>
+      )}
+
+      {/* Camera controls - positioned absolutely */}
+      <View style={styles.controls}>
+        <TouchableOpacity
+          style={[styles.captureButton, isTakingPhoto && styles.captureButtonDisabled]}
+          onPress={takePicture}
+          disabled={isTakingPhoto}
+        >
+          {isTakingPhoto ? (
+            <ActivityIndicator size="large" color="#FFFFFF" />
+          ) : (
+            <View style={styles.captureButtonInner} />
+          )}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -194,11 +192,6 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'space-between',
   },
   recordingIndicator: {
     position: 'absolute',
@@ -225,10 +218,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   controls: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 50,
   },
   captureButton: {
     width: 80,

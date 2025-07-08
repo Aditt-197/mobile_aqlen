@@ -27,7 +27,7 @@ const InspectionApp: React.FC = () => {
   const { recordingState, startRecording, stopRecording, resetRecording } = useRecording();
 
   /**
-   * Create a new inspection
+   * Create a new inspection and start recording automatically
    */
   const createNewInspection = async () => {
     try {
@@ -63,6 +63,15 @@ const InspectionApp: React.FC = () => {
       setCapturedPhotos([]);
       setCurrentScreen('camera');
 
+      // Start recording automatically when inspection begins
+      try {
+        await startRecording();
+        console.log('Audio recording started automatically');
+      } catch (error) {
+        console.error('Failed to start audio recording:', error);
+        Alert.alert('Warning', 'Audio recording failed to start, but you can continue with photos.');
+      }
+
     } catch (error) {
       console.error('Failed to create inspection:', error);
       Alert.alert('Error', 'Failed to create new inspection');
@@ -70,20 +79,7 @@ const InspectionApp: React.FC = () => {
   };
 
   /**
-   * Start the inspection recording
-   */
-  const handleStartInspection = async () => {
-    try {
-      await startRecording();
-      Alert.alert('Recording Started', 'Audio recording has begun. You can now take photos.');
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      Alert.alert('Error', 'Failed to start audio recording');
-    }
-  };
-
-  /**
-   * Stop the inspection recording
+   * Stop the inspection recording and go to review
    */
   const handleStopInspection = async () => {
     try {
@@ -194,23 +190,14 @@ const InspectionApp: React.FC = () => {
             />
           </View>
 
-          {/* Recording Controls */}
-          <View style={styles.recordingControls}>
-            {!recordingState.isRecording ? (
-              <TouchableOpacity
-                style={styles.recordButton}
-                onPress={handleStartInspection}
-              >
-                <Text style={styles.recordButtonText}>Start Recording</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={styles.stopButton}
-                onPress={handleStopInspection}
-              >
-                <Text style={styles.stopButtonText}>Stop & Review</Text>
-              </TouchableOpacity>
-            )}
+          {/* Inspection Controls */}
+          <View style={styles.inspectionControls}>
+            <TouchableOpacity
+              style={styles.stopButton}
+              onPress={handleStopInspection}
+            >
+              <Text style={styles.stopButtonText}>Stop Inspection</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </SafeAreaView>
@@ -332,24 +319,13 @@ const styles = StyleSheet.create({
   cameraView: {
     flex: 1,
   },
-  recordingControls: {
+  inspectionControls: {
     paddingHorizontal: 20,
     paddingVertical: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
   },
-  recordButton: {
-    backgroundColor: '#FF3B30',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  recordButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '600',
-  },
   stopButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#FF3B30',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',

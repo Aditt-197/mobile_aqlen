@@ -36,28 +36,36 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
    */
   const startRecording = useCallback(async (): Promise<void> => {
     try {
+      console.log('Starting audio recording...');
+      
       // Request audio permissions
       const permission = await Audio.requestPermissionsAsync();
+      console.log('Audio permission status:', permission.status);
+      
       if (permission.status !== 'granted') {
         throw new Error('Audio permission not granted');
       }
 
-      // Configure audio mode for recording
+      // Configure audio mode for recording with better iOS compatibility
+      console.log('Configuring audio mode...');
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
+        staysActiveInBackground: false, // Changed to false to avoid session conflicts
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });
 
-      // Start recording
+      // Create recording with simplified settings to avoid session conflicts
+      console.log('Creating recording...');
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
 
       recordingRef.current = recording;
       const startTime = Date.now();
+
+      console.log('Recording started successfully');
 
       setRecordingState({
         isRecording: true,
@@ -85,12 +93,15 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
    */
   const stopRecording = useCallback(async (): Promise<string | null> => {
     try {
+      console.log('Stopping audio recording...');
+      
       if (!recordingRef.current) {
         throw new Error('No active recording');
       }
 
       // Stop recording
       await recordingRef.current.stopAndUnloadAsync();
+      console.log('Recording stopped successfully');
       
       // Clear interval
       if (intervalRef.current) {
@@ -106,6 +117,8 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
         throw new Error('Failed to get recording URI');
       }
 
+      console.log('Recording URI:', uri);
+
       // Generate a unique filename
       const fileName = `inspection_audio_${Date.now()}.m4a`;
       const newUri = `${FileSystem.documentDirectory}${fileName}`;
@@ -115,6 +128,8 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
         from: uri,
         to: newUri,
       });
+
+      console.log('Audio file saved to:', newUri);
 
       setRecordingState(prev => ({
         ...prev,
@@ -144,6 +159,8 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
    * Reset recording state
    */
   const resetRecording = useCallback(() => {
+    console.log('Resetting recording state...');
+    
     if (recordingRef.current) {
       recordingRef.current.stopAndUnloadAsync();
       recordingRef.current = null;
