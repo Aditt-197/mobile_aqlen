@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { Audio } from 'expo-av';
 import { inspectionDB } from '../database';
 import { DatabaseInspection, DatabasePhoto } from '../types';
 
@@ -20,6 +21,7 @@ interface ReviewScreenProps {
 /**
  * ReviewScreen component for reviewing captured photos and inspection details
  * Displays thumbnails with timestamps and allows navigation back to camera
+ * Now includes audio playback functionality
  */
 export const ReviewScreen: React.FC<ReviewScreenProps> = ({ 
   inspectionId, 
@@ -28,6 +30,14 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   const [inspection, setInspection] = useState<DatabaseInspection | null>(null);
   const [photos, setPhotos] = useState<DatabasePhoto[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Audio playback state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioPosition, setAudioPosition] = useState(0);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const positionUpdateInterval = useRef<NodeJS.Timeout | null>(null);
 
   /**
    * Load inspection and photos data
@@ -60,6 +70,106 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   };
 
   /**
+   * Load and prepare audio for playback
+   */
+  const loadAudio = async () => {
+    if (!inspection?.audio_uri) {
+      Alert.alert('No Audio', 'No audio recording found for this inspection');
+      return;
+    }
+
+    try {
+      setAudioLoading(true);
+      
+      // Unload any existing sound
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+      }
+
+      // Load the audio file
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: inspection.audio_uri },
+        { shouldPlay: false },
+        onPlaybackStatusUpdate
+      );
+
+      soundRef.current = sound;
+      
+      // Get audio duration
+      const status = await sound.getStatusAsync();
+      if (status.isLoaded) {
+        setAudioDuration(status.durationMillis || 0);
+      }
+
+    } catch (error) {
+      console.error('Failed to load audio:', error);
+      Alert.alert('Error', 'Failed to load audio file');
+    } finally {
+      setAudioLoading(false);
+    }
+  };
+
+  /**
+   * Handle audio playback status updates
+   */
+  const onPlaybackStatusUpdate = (status: any) => {
+    if (status.isLoaded) {
+      setIsPlaying(status.isPlaying);
+      setAudioPosition(status.positionMillis || 0);
+      
+      // If audio finished playing, reset position
+      if (status.didJustFinish) {
+        setAudioPosition(0);
+        setIsPlaying(false);
+      }
+    }
+  };
+
+  /**
+   * Play or pause audio
+   */
+  const toggleAudioPlayback = async () => {
+    if (!soundRef.current) {
+      await loadAudio();
+      return;
+    }
+
+    try {
+      if (isPlaying) {
+        await soundRef.current.pauseAsync();
+      } else {
+        await soundRef.current.playAsync();
+      }
+    } catch (error) {
+      console.error('Failed to toggle audio playback:', error);
+      Alert.alert('Error', 'Failed to control audio playback');
+    }
+  };
+
+  /**
+   * Seek to a specific position in the audio
+   */
+  const seekAudio = async (position: number) => {
+    if (!soundRef.current) return;
+
+    try {
+      await soundRef.current.setPositionAsync(position);
+    } catch (error) {
+      console.error('Failed to seek audio:', error);
+    }
+  };
+
+  /**
+   * Format milliseconds to MM:SS format
+   */
+  const formatTime = (milliseconds: number): string => {
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  /**
    * Format timestamp to readable format
    */
   const formatTimestamp = (timestamp: number): string => {
@@ -82,46 +192,105 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   };
 
   /**
-   * Render individual photo item
+   * Check if a photo is currently playing based on audio position
    */
-  const renderPhotoItem = ({ item }: { item: DatabasePhoto }) => (
-    <View style={styles.photoItem}>
-      <Image
-        source={{ uri: item.photo_uri }}
-        style={styles.photoThumbnail}
-        resizeMode="cover"
-      />
-      <View style={styles.photoInfo}>
-        <Text style={styles.photoTimestamp}>
-          {formatTimestamp(item.timestamp)}
-        </Text>
-        <Text style={styles.audioTimestamp}>
-          Audio: {formatAudioTimestamp(item.audio_timestamp)}
-        </Text>
-        {item.caption && (
-          <Text style={styles.photoCaption} numberOfLines={2}>
-            {item.caption}
-          </Text>
-        )}
-      </View>
-    </View>
-  );
+  const isPhotoCurrentlyPlaying = (photo: DatabasePhoto): boolean => {
+    if (!isPlaying || !soundRef.current) return false;
+    
+    const photoTime = photo.audio_timestamp;
+    const currentTime = audioPosition;
+    const tolerance = 2000; // 2 seconds tolerance
+    
+    return Math.abs(currentTime - photoTime) <= tolerance;
+  };
 
   /**
-   * Handle photo press for full view (placeholder)
+   * Render individual photo item
    */
-  const handlePhotoPress = (photo: DatabasePhoto) => {
-    Alert.alert(
-      'Photo Details',
-      `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audio_timestamp)}`,
-      [{ text: 'OK' }]
+  const renderPhotoItem = ({ item }: { item: DatabasePhoto }) => {
+    const isCurrentlyPlaying = isPhotoCurrentlyPlaying(item);
+    
+    return (
+      <View style={[
+        styles.photoItem,
+        isCurrentlyPlaying && styles.photoItemPlaying
+      ]}>
+        <Image
+          source={{ uri: item.photo_uri }}
+          style={styles.photoThumbnail}
+          resizeMode="cover"
+        />
+        <View style={styles.photoInfo}>
+          <Text style={styles.photoTimestamp}>
+            {formatTimestamp(item.timestamp)}
+          </Text>
+          <Text style={styles.audioTimestamp}>
+            Audio: {formatAudioTimestamp(item.audio_timestamp)}
+          </Text>
+          {isCurrentlyPlaying && (
+            <View style={styles.playingIndicator}>
+              <Text style={styles.playingText}>▶️ Currently Playing</Text>
+            </View>
+          )}
+          {item.caption && (
+            <Text style={styles.photoCaption} numberOfLines={2}>
+              {item.caption}
+            </Text>
+          )}
+        </View>
+      </View>
     );
+  };
+
+  /**
+   * Handle photo press for full view and audio sync
+   */
+  const handlePhotoPress = async (photo: DatabasePhoto) => {
+    // If audio is available, seek to the photo's timestamp
+    if (inspection?.audio_uri && soundRef.current) {
+      try {
+        await soundRef.current.setPositionAsync(photo.audio_timestamp);
+        if (!isPlaying) {
+          await soundRef.current.playAsync();
+        }
+        Alert.alert(
+          'Photo Details',
+          `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audio_timestamp)}\n\nAudio playback started at this timestamp!`,
+          [{ text: 'OK' }]
+        );
+      } catch (error) {
+        console.error('Failed to seek to photo timestamp:', error);
+        Alert.alert(
+          'Photo Details',
+          `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audio_timestamp)}`,
+          [{ text: 'OK' }]
+        );
+      }
+    } else {
+      Alert.alert(
+        'Photo Details',
+        `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audio_timestamp)}`,
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   // Load data on mount
   useEffect(() => {
     loadInspectionData();
   }, [inspectionId]);
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
+      if (positionUpdateInterval.current) {
+        clearInterval(positionUpdateInterval.current);
+      }
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -166,6 +335,43 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
           Photos: {photos.length}
         </Text>
       </View>
+
+      {/* Audio Player */}
+      {inspection.audio_uri && (
+        <View style={styles.audioPlayer}>
+          <Text style={styles.audioTitle}>Audio Recording</Text>
+          
+          <View style={styles.audioControls}>
+            <TouchableOpacity
+              style={styles.playButton}
+              onPress={toggleAudioPlayback}
+              disabled={audioLoading}
+            >
+              {audioLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.playButtonText}>
+                  {isPlaying ? '⏸️' : '▶️'}
+                </Text>
+              )}
+            </TouchableOpacity>
+            
+            <View style={styles.audioInfo}>
+              <Text style={styles.audioTime}>
+                {formatTime(audioPosition)} / {formatTime(audioDuration)}
+              </Text>
+              <View style={styles.progressBar}>
+                <View 
+                  style={[
+                    styles.progressFill, 
+                    { width: `${audioDuration > 0 ? (audioPosition / audioDuration) * 100 : 0}%` }
+                  ]} 
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* Photos List */}
       <View style={styles.photosContainer}>
@@ -262,6 +468,51 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#007AFF',
   },
+  audioPlayer: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    marginBottom: 10,
+  },
+  audioTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginBottom: 15,
+  },
+  audioControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  playButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  playButtonText: {
+    fontSize: 20,
+  },
+  audioInfo: {
+    flex: 1,
+  },
+  audioTime: {
+    fontSize: 14,
+    color: '#6C6C70',
+    marginBottom: 8,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#E1E5E9',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#007AFF',
+  },
   photosContainer: {
     flex: 1,
     paddingHorizontal: 20,
@@ -342,5 +593,23 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     textAlign: 'center',
     marginTop: 20,
+  },
+  photoItemPlaying: {
+    borderWidth: 2,
+    borderColor: '#007AFF',
+    borderRadius: 12,
+  },
+  playingIndicator: {
+    backgroundColor: '#007AFF',
+    borderRadius: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  playingText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 
