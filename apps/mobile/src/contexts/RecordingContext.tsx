@@ -2,11 +2,13 @@ import React, { createContext, useContext, useState, useRef, useCallback } from 
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { RecordingState } from '../types';
+import { firebaseStorage } from '../services/firebaseStorage';
+import { firestoreService } from '../services/firestoreService';
 
 interface RecordingContextType {
   recordingState: RecordingState;
   startRecording: () => Promise<void>;
-  stopRecording: () => Promise<string | null>;
+  stopRecording: (inspectionId?: string) => Promise<string | null>;
   resetRecording: () => void;
 }
 
@@ -37,11 +39,11 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
   const startRecording = useCallback(async (): Promise<void> => {
     try {
       console.log('Starting audio recording...');
-      
+
       // Request audio permissions
       const permission = await Audio.requestPermissionsAsync();
       console.log('Audio permission status:', permission.status);
-      
+
       if (permission.status !== 'granted') {
         throw new Error('Audio permission not granted');
       }
@@ -91,10 +93,10 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
   /**
    * Stop recording and return the audio file URI
    */
-  const stopRecording = useCallback(async (): Promise<string | null> => {
+  const stopRecording = useCallback(async (inspectionId?: string): Promise<string | null> => {
     try {
       console.log('Stopping audio recording...');
-      
+
       if (!recordingRef.current) {
         throw new Error('No active recording');
       }
@@ -102,7 +104,7 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
       // Stop recording
       await recordingRef.current.stopAndUnloadAsync();
       console.log('Recording stopped successfully');
-      
+
       // Clear interval
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -131,6 +133,23 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
 
       console.log('Audio file saved to:', newUri);
 
+      // Upload to Firebase if inspectionId is provided
+      let firebaseUrl: string | undefined;
+      if (inspectionId) {
+        try {
+          const uploadResult = await firebaseStorage.uploadAudio(newUri, inspectionId);
+          firebaseUrl = uploadResult.downloadUrl;
+          console.log('Audio uploaded to Firebase Storage:', firebaseUrl);
+
+          // Save Firebase URL to Firestore
+          await firestoreService.updateInspectionFirebaseAudioUrl(inspectionId, firebaseUrl);
+          console.log('Firebase audio URL saved to Firestore');
+        } catch (uploadError) {
+          console.error('Failed to upload audio to Firebase Storage:', uploadError);
+          // Continue without Firebase upload - local file is still saved
+        }
+      }
+
       setRecordingState(prev => ({
         ...prev,
         isRecording: false,
@@ -142,7 +161,7 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
 
     } catch (error) {
       console.error('Failed to stop recording:', error);
-      
+
       // Reset state on error
       setRecordingState({
         isRecording: false,
@@ -150,7 +169,7 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
         startTime: undefined,
         duration: 0,
       });
-      
+
       throw error;
     }
   }, []);
@@ -160,7 +179,7 @@ export const RecordingProvider: React.FC<RecordingProviderProps> = ({ children }
    */
   const resetRecording = useCallback(() => {
     console.log('Resetting recording state...');
-    
+
     if (recordingRef.current) {
       recordingRef.current.stopAndUnloadAsync();
       recordingRef.current = null;
@@ -202,4 +221,4 @@ export const useRecording = (): RecordingContextType => {
     throw new Error('useRecording must be used within a RecordingProvider');
   }
   return context;
-}; 
+};

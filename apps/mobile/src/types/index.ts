@@ -14,6 +14,7 @@ export interface Inspection {
   inspectionDate: string;
   photos: Photo[];
   audioUri?: string;
+  firebaseAudioUrl?: string;
   status: 'DRAFT' | 'PROCESSING' | 'READY' | 'ERROR';
   createdAt: number;
   updatedAt: number;
@@ -30,6 +31,7 @@ export interface DatabasePhoto {
   id: string;
   inspection_id: string;
   photo_uri: string;
+  firebase_url?: string;
   timestamp: number;
   audio_timestamp: number;
   caption?: string;
@@ -43,7 +45,8 @@ export interface DatabaseInspection {
   claim_number: string;
   inspection_date: string;
   audio_uri?: string;
+  firebase_audio_url?: string;
   status: string;
   created_at: number;
   updated_at: number;
-} 
+}

@@ -11,7 +11,7 @@ import {
 import { RecordingProvider, useRecording } from './src/contexts/RecordingContext';
 import { CameraScreen } from './src/screens/CameraScreen';
 import { ReviewScreen } from './src/screens/ReviewScreen';
-import { inspectionDB } from './src/database';
+import { firestoreService } from './src/services/firestoreService';
 import { Photo, Inspection } from './src/types';
 
 type Screen = 'home' | 'camera' | 'review';
@@ -31,11 +31,10 @@ const InspectionApp: React.FC = () => {
    */
   const createNewInspection = async () => {
     try {
-      const inspectionId = `inspection_${Date.now()}`;
       const today = new Date().toISOString().split('T')[0];
 
       const inspection: Omit<Inspection, 'photos' | 'createdAt' | 'updatedAt'> = {
-        id: inspectionId,
+        id: '', // Will be set by Firestore
         client: 'Demo Client',
         address: '123 Demo Street, Demo City',
         claimNumber: `CLM-${Date.now()}`,
@@ -43,22 +42,31 @@ const InspectionApp: React.FC = () => {
         status: 'DRAFT',
       };
 
-      // Save to database
-      await inspectionDB.createInspection({
-        id: inspectionId,
+      // Save to Firestore
+      const inspectionId = await firestoreService.createInspection({
         client: inspection.client,
         address: inspection.address,
-        claim_number: inspection.claimNumber,
-        inspection_date: inspection.inspectionDate,
+        claimNumber: inspection.claimNumber,
+        inspectionDate: inspection.inspectionDate,
         status: inspection.status,
       });
 
-      setCurrentInspection({
-        ...inspection,
-        photos: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
+      // Get the created inspection from Firestore
+      const createdInspection = await firestoreService.getInspection(inspectionId);
+
+      if (createdInspection) {
+        setCurrentInspection({
+          id: inspectionId,
+          client: createdInspection.client,
+          address: createdInspection.address,
+          claimNumber: createdInspection.claimNumber,
+          inspectionDate: createdInspection.inspectionDate,
+          photos: [],
+          status: createdInspection.status,
+          createdAt: createdInspection.createdAt.toMillis(),
+          updatedAt: createdInspection.updatedAt.toMillis(),
+        });
+      }
 
       setCapturedPhotos([]);
       setCurrentScreen('camera');
@@ -83,10 +91,10 @@ const InspectionApp: React.FC = () => {
    */
   const handleStopInspection = async () => {
     try {
-      const audioUri = await stopRecording();
+      const audioUri = await stopRecording(currentInspection?.id);
       if (audioUri && currentInspection) {
-        // Update inspection with audio URI
-        await inspectionDB.updateInspectionAudio(currentInspection.id, audioUri);
+        // Update inspection with audio URI in Firestore
+        await firestoreService.updateInspectionAudioUrl(currentInspection.id, audioUri);
         setCurrentInspection(prev => prev ? { ...prev, audioUri } : null);
       }
       setCurrentScreen('review');

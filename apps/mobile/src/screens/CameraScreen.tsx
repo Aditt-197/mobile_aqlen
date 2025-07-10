@@ -10,8 +10,9 @@ import {
 import { Camera, CameraView } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
 import { useRecording } from '../contexts/RecordingContext';
-import { inspectionDB } from '../database';
+import { firestoreService } from '../services/firestoreService';
 import { Photo } from '../types';
+import { firebaseStorage } from '../services/firebaseStorage';
 
 interface CameraScreenProps {
   inspectionId: string;
@@ -84,15 +85,27 @@ export const CameraScreen: React.FC<CameraScreenProps> = ({
         audioTimestamp: currentAudioTimestamp,
       };
 
-      // Save to database
-      const photoId = `photo_${Date.now()}`;
-      await inspectionDB.addPhoto({
-        id: photoId,
-        inspection_id: inspectionId,
-        photo_uri: newUri,
+      // Save to Firestore
+      const photoId = await firestoreService.addPhoto({
+        inspectionId: inspectionId,
+        photoUri: newUri,
         timestamp: photoData.timestamp,
-        audio_timestamp: photoData.audioTimestamp,
+        audioTimestamp: photoData.audioTimestamp,
       });
+
+      // Upload to Firebase Storage
+      let firebaseUrl: string | undefined;
+      try {
+        const uploadResult = await firebaseStorage.uploadPhoto(newUri, inspectionId, photoId);
+        firebaseUrl = uploadResult.downloadUrl;
+        console.log('Photo uploaded to Firebase Storage:', firebaseUrl);
+
+        // Update Firestore with Firebase URL
+        await firestoreService.updatePhotoFirebaseUrl(photoId, firebaseUrl);
+      } catch (uploadError) {
+        console.error('Failed to upload photo to Firebase Storage:', uploadError);
+        // Continue without Firebase upload - local file is still saved
+      }
 
       const savedPhoto: Photo = {
         id: photoId,
