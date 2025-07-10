@@ -3,7 +3,7 @@ import { getStorage } from 'firebase/storage';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "<api_key>" // get from gcp firebase portal,
+  apiKey: "AIzaSyDjOJ1pXA97PGipV-FiuR14aWvVAedaaVw", // get from gcp firebase portal
   authDomain: "aqlen-465501.firebaseapp.com",
   projectId: "aqlen-465501",
   storageBucket: "aqlen-465501.firebasestorage.app",

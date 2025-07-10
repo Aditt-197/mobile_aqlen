@@ -10,8 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Audio } from 'expo-av';
-import { inspectionDB } from '../database';
-import { DatabaseInspection, DatabasePhoto } from '../types';
+import { firestoreService, FirestoreInspection, FirestorePhoto } from '../services/firestoreService';
 
 interface ReviewScreenProps {
   inspectionId: string;
@@ -27,8 +26,8 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   inspectionId, 
   onBack 
 }) => {
-  const [inspection, setInspection] = useState<DatabaseInspection | null>(null);
-  const [photos, setPhotos] = useState<DatabasePhoto[]>([]);
+  const [inspection, setInspection] = useState<FirestoreInspection | null>(null);
+  const [photos, setPhotos] = useState<FirestorePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Audio playback state
@@ -40,30 +39,31 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   const positionUpdateInterval = useRef<NodeJS.Timeout | null>(null);
 
   /**
-   * Load inspection and photos data
+   * Load inspection and photos data from Firestore
    */
   const loadInspectionData = async () => {
     try {
       setLoading(true);
-      
-      // Get all inspections and find the current one
-      const inspections = await inspectionDB.getInspections();
-      const currentInspection = inspections.find(ins => ins.id === inspectionId);
-      
+      console.log('ReviewScreen: Fetching inspection with ID:', inspectionId);
+      // Fetch from Firestore, not local DB!
+      const currentInspection = await firestoreService.getInspection(inspectionId);
       if (!currentInspection) {
         Alert.alert('Error', 'Inspection not found');
+        setInspection(null);
+        setPhotos([]);
         return;
       }
-
       setInspection(currentInspection);
 
       // Get photos for this inspection
-      const inspectionPhotos = await inspectionDB.getPhotosForInspection(inspectionId);
+      const inspectionPhotos = await firestoreService.getPhotosForInspection(inspectionId);
       setPhotos(inspectionPhotos);
 
     } catch (error) {
       console.error('Failed to load inspection data:', error);
       Alert.alert('Error', 'Failed to load inspection data');
+      setInspection(null);
+      setPhotos([]);
     } finally {
       setLoading(false);
     }
@@ -73,7 +73,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
    * Load and prepare audio for playback
    */
   const loadAudio = async () => {
-    if (!inspection?.audio_uri) {
+    if (!inspection?.audioUri) {
       Alert.alert('No Audio', 'No audio recording found for this inspection');
       return;
     }
@@ -88,7 +88,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
 
       // Load the audio file
       const { sound } = await Audio.Sound.createAsync(
-        { uri: inspection.audio_uri },
+        { uri: inspection.audioUri },
         { shouldPlay: false },
         onPlaybackStatusUpdate
       );
@@ -194,10 +194,10 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   /**
    * Check if a photo is currently playing based on audio position
    */
-  const isPhotoCurrentlyPlaying = (photo: DatabasePhoto): boolean => {
+  const isPhotoCurrentlyPlaying = (photo: FirestorePhoto): boolean => {
     if (!isPlaying || !soundRef.current) return false;
     
-    const photoTime = photo.audio_timestamp;
+    const photoTime = photo.audioTimestamp;
     const currentTime = audioPosition;
     const tolerance = 2000; // 2 seconds tolerance
     
@@ -207,7 +207,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   /**
    * Render individual photo item
    */
-  const renderPhotoItem = ({ item }: { item: DatabasePhoto }) => {
+  const renderPhotoItem = ({ item }: { item: FirestorePhoto }) => {
     const isCurrentlyPlaying = isPhotoCurrentlyPlaying(item);
     
     return (
@@ -216,7 +216,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
         isCurrentlyPlaying && styles.photoItemPlaying
       ]}>
         <Image
-          source={{ uri: item.photo_uri }}
+          source={{ uri: item.photoUri }}
           style={styles.photoThumbnail}
           resizeMode="cover"
         />
@@ -225,7 +225,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
             {formatTimestamp(item.timestamp)}
           </Text>
           <Text style={styles.audioTimestamp}>
-            Audio: {formatAudioTimestamp(item.audio_timestamp)}
+            Audio: {formatAudioTimestamp(item.audioTimestamp)}
           </Text>
           {isCurrentlyPlaying && (
             <View style={styles.playingIndicator}>
@@ -245,31 +245,31 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   /**
    * Handle photo press for full view and audio sync
    */
-  const handlePhotoPress = async (photo: DatabasePhoto) => {
+  const handlePhotoPress = async (photo: FirestorePhoto) => {
     // If audio is available, seek to the photo's timestamp
-    if (inspection?.audio_uri && soundRef.current) {
+    if (inspection?.audioUri && soundRef.current) {
       try {
-        await soundRef.current.setPositionAsync(photo.audio_timestamp);
+        await soundRef.current.setPositionAsync(photo.audioTimestamp);
         if (!isPlaying) {
           await soundRef.current.playAsync();
         }
         Alert.alert(
           'Photo Details',
-          `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audio_timestamp)}\n\nAudio playback started at this timestamp!`,
+          `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audioTimestamp)}\n\nAudio playback started at this timestamp!`,
           [{ text: 'OK' }]
         );
       } catch (error) {
         console.error('Failed to seek to photo timestamp:', error);
         Alert.alert(
           'Photo Details',
-          `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audio_timestamp)}`,
+          `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audioTimestamp)}`,
           [{ text: 'OK' }]
         );
       }
     } else {
       Alert.alert(
         'Photo Details',
-        `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audio_timestamp)}`,
+        `Timestamp: ${formatTimestamp(photo.timestamp)}\nAudio: ${formatAudioTimestamp(photo.audioTimestamp)}`,
         [{ text: 'OK' }]
       );
     }
@@ -327,9 +327,9 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
       <View style={styles.inspectionDetails}>
         <Text style={styles.inspectionTitle}>{inspection.client}</Text>
         <Text style={styles.inspectionAddress}>{inspection.address}</Text>
-        <Text style={styles.inspectionClaim}>Claim: {inspection.claim_number}</Text>
+        <Text style={styles.inspectionClaim}>Claim: {inspection.claimNumber}</Text>
         <Text style={styles.inspectionDate}>
-          Date: {new Date(inspection.inspection_date).toLocaleDateString()}
+          Date: {new Date(inspection.inspectionDate).toLocaleDateString()}
         </Text>
         <Text style={styles.photoCount}>
           Photos: {photos.length}
@@ -337,7 +337,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
       </View>
 
       {/* Audio Player */}
-      {inspection.audio_uri && (
+      {inspection.audioUri && (
         <View style={styles.audioPlayer}>
           <Text style={styles.audioTitle}>Audio Recording</Text>
           
@@ -394,7 +394,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                 {renderPhotoItem({ item })}
               </TouchableOpacity>
             )}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item, index) => item.id ? String(item.id) : String(index)}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.photosList}
           />

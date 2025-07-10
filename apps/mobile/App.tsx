@@ -25,6 +25,7 @@ const InspectionApp: React.FC = () => {
   const [currentInspection, setCurrentInspection] = useState<Inspection | null>(null);
   const [capturedPhotos, setCapturedPhotos] = useState<Photo[]>([]);
   const { recordingState, startRecording, stopRecording, resetRecording } = useRecording();
+  const [pendingInspectionId, setPendingInspectionId] = useState<string | null>(null); // for async safety
 
   /**
    * Create a new inspection and start recording automatically
@@ -32,7 +33,6 @@ const InspectionApp: React.FC = () => {
   const createNewInspection = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
-
       const inspection: Omit<Inspection, 'photos' | 'createdAt' | 'updatedAt'> = {
         id: '', // Will be set by Firestore
         client: 'Demo Client',
@@ -50,26 +50,28 @@ const InspectionApp: React.FC = () => {
         inspectionDate: inspection.inspectionDate,
         status: inspection.status,
       });
+      setPendingInspectionId(inspectionId); // Save for async safety
+      console.log('Inspection created, Firestore ID:', inspectionId);
 
       // Get the created inspection from Firestore
       const createdInspection = await firestoreService.getInspection(inspectionId);
-
       if (createdInspection) {
         setCurrentInspection({
-          id: inspectionId,
+          id: inspectionId, // Always use Firestore ID
           client: createdInspection.client,
           address: createdInspection.address,
           claimNumber: createdInspection.claimNumber,
           inspectionDate: createdInspection.inspectionDate,
           photos: [],
           status: createdInspection.status,
-          createdAt: createdInspection.createdAt.toMillis(),
-          updatedAt: createdInspection.updatedAt.toMillis(),
+          createdAt: createdInspection.createdAt?.toMillis?.() || Date.now(),
+          updatedAt: createdInspection.updatedAt?.toMillis?.() || Date.now(),
         });
+        setCapturedPhotos([]);
+        setCurrentScreen('camera');
+      } else {
+        Alert.alert('Error', 'Failed to fetch created inspection from Firestore');
       }
-
-      setCapturedPhotos([]);
-      setCurrentScreen('camera');
 
       // Start recording automatically when inspection begins
       try {
@@ -79,7 +81,6 @@ const InspectionApp: React.FC = () => {
         console.error('Failed to start audio recording:', error);
         Alert.alert('Warning', 'Audio recording failed to start, but you can continue with photos.');
       }
-
     } catch (error) {
       console.error('Failed to create inspection:', error);
       Alert.alert('Error', 'Failed to create new inspection');
@@ -214,11 +215,13 @@ const InspectionApp: React.FC = () => {
 
   // Render review screen
   if (currentScreen === 'review') {
+    const reviewInspectionId = currentInspection?.id || pendingInspectionId || '';
+    console.log('Navigating to ReviewScreen with inspectionId:', reviewInspectionId);
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <ReviewScreen
-          inspectionId={currentInspection?.id || ''}
+          inspectionId={reviewInspectionId}
           onBack={handleBackToCamera}
         />
       </SafeAreaView>

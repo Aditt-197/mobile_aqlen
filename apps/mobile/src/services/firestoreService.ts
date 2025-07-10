@@ -217,6 +217,22 @@ export class FirestoreService {
   }
 
   /**
+   * Update photo caption in Firestore
+   */
+  async updatePhotoCaption(photoId: string, caption: string): Promise<void> {
+    try {
+      const docRef = doc(firestore, this.photosCollection, photoId);
+      await updateDoc(docRef, {
+        caption,
+      });
+      console.log('Photo caption updated in Firestore');
+    } catch (error) {
+      console.error('Failed to update photo caption in Firestore:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Update inspection status in Firestore
    */
   async updateInspectionStatus(inspectionId: string, status: string): Promise<void> {
